@@ -1,0 +1,30 @@
+# ===== conteúdo baixado (NUNCA versionar) =====
+Mangas/
+*.cbz
+*.cbr
+*.pdf
+*.epub
+*.download-archive.txt
+.download-archive.txt
+.volumes-urls.txt
+.upscaled.json
+
+# ===== binários de terceiros (baixar na instalação) =====
+tools/
+
+# ===== temporários / cache =====
+__pycache__/
+*.pyc
+*.pyo
+.part
+Site/logs/
+*.log
+
+# ===== arquivos pessoais / fora do projeto =====
+*.pst
+*.pst.tmp
+~$*
+
+# ===== sistema =====
+Thumbs.db
+.DS_Store

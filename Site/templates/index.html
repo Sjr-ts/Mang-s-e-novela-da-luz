@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baixador de Manga</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23ff5a1f' rx='18' width='100' height='100'/%3E%3Ctext x='50' y='72' font-size='58' text-anchor='middle' fill='white' font-family='Georgia'%3EB%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+      <rect x="2" y="2" width="44" height="44" rx="10" fill="#ff5a1f"/>
+      <path d="M14 33V15h4.5v8.5h7.5V15H30v18h-4v-6h-7.5v6H14z" fill="#fff" opacity=".96"/>
+      <path d="M34 15v18h4V15z" fill="#ffd9c2"/>
+    </svg>
+    <div class="brand-text">
+      <span class="brand-name">Baixador de Manga</span>
+      <span class="brand-sub">MangaFire · pt-br</span>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <button class="nav-btn active" data-page="download">Baixar</button>
+    <button class="nav-btn" data-page="library">Biblioteca</button>
+    <div class="status-pill" title="Servidor local ativo"><span class="dot"></span> online</div>
+  </nav>
+</header>
+
+<main class="container">
+
+  <!-- ============ PÁGINA: BAIXAR ============ -->
+  <section id="page-download" class="page active">
+
+    <div class="search-card">
+      <label class="field-label" for="urlInput">Cole o link do mangá</label>
+      <div class="search-row">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="urlInput" type="text" inputmode="url" spellcheck="false" autocomplete="off"
+               placeholder="https://mangafire.to/title/053-fairy-taill">
+        <button id="pasteBtn" class="ghost" title="Colar da área de transferência">Colar</button>
+        <button id="searchBtn" class="primary"><span>Buscar</span></button>
+      </div>
+      <div class="hint">Aceita também o link de um capítulo ou volume — eu acho a página do mangá sozinho.</div>
+    </div>
+
+    <!-- Resultado da busca -->
+    <div id="resultCard" class="result-card hidden">
+      <div class="cover-wrap">
+        <img id="coverImg" alt="Capa do mangá" loading="lazy">
+      </div>
+      <div class="meta">
+        <h1 id="mTitle" class="m-title"></h1>
+        <div id="mAlt" class="alt-titles"></div>
+        <div id="mAuthors" class="byline"></div>
+        <div id="mTags" class="chips"></div>
+        <p id="mDesc" class="desc"></p>
+        <div class="stats-row" id="mStats"></div>
+      </div>
+    </div>
+
+    <!-- Seleção -->
+    <div id="selectCard" class="select-card hidden">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="chapters" role="tab">Capítulos<span id="tabCountCh" class="badge">0</span></button>
+        <button class="tab" data-tab="volumes" role="tab">Volumes<span id="tabCountVol" class="badge">0</span></button>
+      </div>
+
+      <div class="toolbar">
+        <button id="selAll" class="ghost small">Selecionar todos</button>
+        <button id="selNone" class="ghost small">Limpar</button>
+        <div class="range-group">
+          <span class="range-label">Faixa</span>
+          <input id="rangeFrom" type="number" min="0" placeholder="de" aria-label="Número inicial">
+          <span class="dash">→</span>
+          <input id="rangeTo" type="number" min="0" placeholder="até" aria-label="Número final">
+          <button id="rangeApply" class="ghost small">Aplicar</button>
+        </div>
+        <div class="toolbar-right">
+          <span id="selCount" class="sel-count">0 selecionados</span>
+        </div>
+      </div>
+
+      <div class="list-wrap">
+        <ul id="chapterList" class="chapter-list" aria-label="Capítulos"></ul>
+        <ul id="volumeList" class="chapter-list hidden" aria-label="Volumes"></ul>
+        <div id="listEmpty" class="list-empty hidden">Nada encontrado para este idioma.</div>
+      </div>
+
+      <div class="download-bar">
+        <div class="opt-group">
+          <label for="langSel">Idioma</label>
+          <select id="langSel"></select>
+        </div>
+        <div class="opt-group wide">
+          <label for="formatSel">Formato de saída</label>
+          <select id="formatSel">
+            <option value="cbz" selected>CBZ — ZIP de imagens (universal)</option>
+            <option value="pdf">PDF — 1 arquivo por capítulo (ótimo no celular)</option>
+            <option value="epub">EPUB — para Kobo/Calibre e leitores</option>
+            <option value="images">Imagens soltas — pasta sem compactar</option>
+          </select>
+        </div>
+        <div class="opt-group wide">
+          <label for="resSel">Resolução / melhoria</label>
+          <select id="resSel">
+            <option value="original" selected>Original — como a fonte tem</option>
+            <option value="lanczos16">Melhorar 1.6× — Lanczos (≈1000 px, rápido)</option>
+            <option value="lanczos2">Melhorar 2.0× — Lanczos (≈1250 px)</option>
+            <option value="w1000">Melhorar — largura exata 1000 px</option>
+            <option value="waifu2x-art" data-ai="waifu2x-art">Waifu2x — arte (anti-JPEG, ~12 s/pág.)</option>
+            <option value="waifu2x-cunet" data-ai="waifu2x-cunet">Waifu2x — cunet (máximo, ~25 s/pág.)</option>
+          </select>
+        </div>
+        <div class="opt-group wide">
+          <label for="qualitySel">Edição</label>
+          <select id="qualitySel">
+            <option value="all" selected>Tudo disponível</option>
+            <option value="official">Somente oficiais (licenciadas)</option>
+          </select>
+        </div>
+        <div class="opt-group grow">
+          <label for="destInput">Pasta de destino</label>
+          <input id="destInput" type="text" spellcheck="false" value="{{ default_dest }}">
+        </div>
+      </div>
+      <div class="keep-row" id="keepRow">
+        <label class="keep-toggle"><input type="checkbox" id="keepImages"><span class="keep-switch"></span><span class="keep-text">Manter as imagens soltas além do arquivo final</span></label>
+      </div>
+
+      <div class="cta-row">
+        <div class="cta-info">
+          <div class="cta-title" id="ctaTitle">Selecione os capítulos ou volumes</div>
+          <div class="cta-sub" id="ctaSub">O idioma, a edição e a resolução valem para tudo que for baixado agora.</div>
+        </div>
+        <button id="downloadBtn" class="cta" disabled>
+          <span class="cta-label">Baixar</span>
+          <span class="cta-arrow" aria-hidden="true">→</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Progresso -->
+    <div id="progressCard" class="progress-card hidden" aria-live="polite">
+      <div class="progress-head">
+        <div class="progress-headings">
+          <div class="progress-title" id="progTitle">Baixando…</div>
+          <div class="progress-sub" id="progSub">Preparando…</div>
+        </div>
+        <div class="progress-actions">
+          <button id="openFolderBtn" class="ghost" hidden>Abrir pasta</button>
+          <button id="cancelBtn" class="danger-ghost">Cancelar</button>
+        </div>
+      </div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBarWrap">
+        <div id="progBar" class="bar-fill" style="width:0%"></div>
+      </div>
+      <div class="progress-stats">
+        <span class="stat" id="progPct">0%</span>
+        <span class="stat dim" id="progPages">0/0 páginas</span>
+        <span class="stat dim" id="progItems">0/0 itens</span>
+        <span class="stat dim" id="progEta">calculando…</span>
+      </div>
+      <details class="logbox">
+        <summary>Detalhes técnicos</summary>
+        <pre id="logPre" class="log-pre"></pre>
+      </details>
+    </div>
+
+  </section>
+
+  <!-- ============ PÁGINA: BIBLIOTECA ============ -->
+  <section id="page-library" class="page">
+    <div class="library-head">
+      <div>
+        <h2 class="section-title">Minha biblioteca</h2>
+        <p class="section-sub" id="libStats">Carregando…</p>
+      </div>
+      <div class="library-actions">
+        <input id="libDestInput" class="dest-input" type="text" spellcheck="false" value="{{ default_dest }}" aria-label="Pasta da biblioteca">
+        <button id="verifyBtn" class="ghost">Verificar ordem (CBZ)</button>
+        <button id="libRefresh" class="ghost">Atualizar</button>
+      </div>
+    </div>
+    <div id="verifyPanel" class="verify-panel hidden">
+      <div class="verify-head">
+        <strong id="verifyTitle">Verificando ordem de leitura…</strong>
+        <div class="verify-actions">
+          <button id="fixBtn" class="ghost small" hidden>Corrigir ordem automaticamente</button>
+          <button id="verifyClose" class="ghost small">Fechar</button>
+        </div>
+      </div>
+      <div id="verifyReport" class="verify-report"></div>
+    </div>
+    <div id="libraryGrid" class="library-grid"></div>
+    <div id="libEmpty" class="empty-state hidden">
+      Ainda não há mangás baixados nesta pasta.<br>
+      Vá em <strong>Baixar</strong>, cole um link e escolha os capítulos.
+    </div>
+  </section>
+
+</main>
+
+<div id="toastWrap" class="toast-wrap" aria-live="polite"></div>
+<footer class="foot">Baixador de Manga · uso pessoal · conteúdo do MangaFire</footer>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

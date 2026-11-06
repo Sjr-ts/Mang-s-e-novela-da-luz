@@ -1,0 +1,190 @@
+﻿BAIXADOR DE MANGA — como usar
+==============================
+
+O que este programa faz
+-----------------------
+Baixa os capitulos (ou os VOLUMES compilados) de um manga do
+MangaFire (em portugues, por padrao) e salva cada um ja no formato
+CBZ, dentro da pasta:
+
+    C:\Users\usuario\Documents\Baixador de Manga\Mangas\mangafire\Nome do Manga\
+
+Exemplo: c001.cbz, c002.cbz, ... c300.cbz
+
+CBZ e um arquivo ZIP so com as imagens do capitulo — Kindle, Tachiyomi,
+Komga e a maioria dos leitores de manga abrem direto.
+
+
+MELHOR OPCAO — O SITE (recomendado)
+-----------------------------------
+De duplo clique em  Baixar Manga (Site).bat
+
+O navegador abre sozinho em  http://127.0.0.1:8765  com o programa
+completo e bonito. Tudo na mesma tela:
+
+  1. Cole o link do manga e clique BUSCAR
+     (funciona tambem com link de capitulo ou volume
+      — ele acha a pagina do manga sozinho)
+  2. Tela do manga: capa, autor, sinopse, nota, generos,
+     numero de capitulos e volumes disponiveis
+  3. Escolha na lista: capitulos OU volumes
+       - "Selecionar todos" / "Limpar"
+       - Faixa rapida: digite de/ate e aplicar
+       - Paginacao so no que interessa
+  4. Opcoes:
+       Idioma     -> pt-br, en, es, es-la, fr...
+       Resolucao  -> Original (como a fonte tem)
+                    | Melhorar 1.6x Lanczos (≈1000px)
+                    | Melhorar — largura 1000 px
+                    | Melhorar 2.0x Lanczos (≈1250px)
+       Edicao     -> Tudo disponivel | Somente oficiais (licenciadas)
+       Pasta      -> troque se quiser salvar em outro lugar
+  5. Clique BAIXAR: barra de progresso de verdade, com
+     %, paginas (x/total), itens (x/total),
+     tempo restante, botao CANCELAR e log tecnica
+     ("Detalhes tecnicos" mostra o que esta acontecendo)
+  6. Aba BIBLIOTECA: ve tudo que ja foi baixado nesta pasta
+     (quantidade de CBZ e tamanho) e abre a pasta no Explorer
+
+Feche a janela preta do servidor para desligar o site.
+Se abrir o .bat de novo enquanto o servidor ja estiver rodando,
+ele so abre o navegador.
+
+DICA DE QUALIDADE: em pt-br o MangaFire so tem a versao
+"scanlation" (imagens ≈625x904, com pequenos "losangos" do JPEG —
+isso e da fonte, nao do programa). O site mostra EXATAMENTE
+as mesmas imagens que o proprio site exibe.
+Para qualidade maxima: idioma = English + Edicao =
+"Somente oficiais (licenciadas)" — paginas ~1000x1500-1600,
+a versao oficial da editora.
+
+
+MODO FACIL (duplo clique)
+-------------------------
+1. De duplo clique em  Baixar Manga.bat
+2. Cole o link do manga
+      exemplo:  https://mangafire.to/title/3kr-rave-master
+3. VOLUMES ou CAPITULOS? (s = volumes / Enter = capitulos)
+4. Digite a faixa desejada:
+      1-100   -> do 1 ao 100
+      50-     -> do 50 ate o fim
+      -100    -> do primeiro ate o 100
+      27      -> somente o 27
+      (Enter) -> TODOS
+5. Idioma: aperte Enter para pt-br (ou digite en, es, ...)
+6. Manter imagens alem do CBZ? Aperte Enter para nao (padrao)
+7. Aguarde. Cada item terminado vira um .cbz na pasta do manga.
+
+
+MODO LINHA DE COMANDO (avancado)
+--------------------------------
+Abra o PowerShell NA PASTA do programa (Shift + botão direito >
+"Abrir janela do PowerShell aqui") e rode:
+
+    .\Baixador de Manga.ps1 -Link "URL" [opcoes]
+
+Opcoes:
+    -Link           URL do manga (se omitido, o programa pergunta)
+    -De             capitulo inicial   (padrao: desde o primeiro)
+    -Ate            capitulo final     (padrao: ate o ultimo)
+    -Lang           idioma             (padrao: pt-br)
+    -Destino        pasta de saida     (padrao: .\Mangas)
+    -ManterImagens  nao apaga os JPGs depois de criar o CBZ
+    -Simular        nao baixa nada; so mostra o que seria feito
+
+Exemplos:
+
+    # Todos os capitulos, em pt-br
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/3kr-rave-master"
+
+    # Capitulos 1 a 100
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/3kr-rave-master" -De 1 -Ate 100
+
+    # So o capitulo 5
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/3kr-rave-master" -De 5 -Ate 5
+
+    # Do capitulo 50 ate o fim
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/3kr-rave-master" -De 50
+
+    # Em ingles, salvando em outra pasta
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/3kr-rave-master" -Lang en -Destino "D:\Mangas"
+
+    # Ver o que seria baixado, sem baixar (simulacao)
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/3kr-rave-master" -Simular
+
+
+VOLUMES (COMPILADOS) NO MANGAFIRE
+---------------------------------
+"Volumes" sao os compilados de varios capitulos (iguais aos volumes da
+livraria). No MangaFire eles ficam em paginas separadas das dos
+capitulos — por isso o modo proprio -SoVolumes:
+
+    # So os VOLUMES 1 a 10, em pt-br (Fairy Tail tem 63 em pt-br)
+    .\Baixador de Manga.ps1 -Link "https://mangafire.to/title/053-fairy-taill" -SoVolumes -De 1 -Ate 10
+
+    # Todos os volumes disponiveis
+    .\Baixador de Manga.ps1 -Link "LINK" -SoVolumes
+
+    # Volumes em ingles
+    .\Baixador de Manga.ps1 -Link "LINK" -SoVolumes -Lang en
+
+    # So o v1, mantendo as imagens
+    .\Baixador de Manga.ps1 -Link "LINK" -SoVolumes -De 1 -Ate 1 -ManterImagens
+
+No modo facil (duplo clique), responda "s" na pergunta sobre VOLUMES.
+
+Detalhes:
+- Cada volume vira um .cbz (ex.: v01.cbz) na pasta do manga.
+- Capitulos avulsos viram cXXX.cbz — nao se misturam.
+- -De/-Ate limita o NUMERO do volume (e nao paginas).
+- Nem todo manga tem volumes em pt-br: o programa avisa se nao achar.
+  Fairy Tail tem 63 em pt-br; Rave Master tem 35 em pt-br.
+- Volumes tambem retomam de onde pararam (mesma .download-archive.txt).
+
+
+SE O DOWNLOAD PARAR NO MEIO
+---------------------------
+Rode o mesmo comando de novo. O programa usa o arquivo
+
+    Mangas\.download-archive.txt
+
+para saber o que ja foi baixado e pula essas paginas.
+Se quiser baixar tudo de novo do zero, apague esse arquivo
+(e os CBZ/pastas antigos do manga).
+
+
+OBSERVACOES
+-----------
+- Capitulos avulsos viram cXXX.cbz; volumes compilados, vXX.cbz.
+- Alguns capitulos podem nao existir em pt-br no MangaFire (ex.: extras de
+  volume). O programa baixa o que existir e avisa no final se algo falhou.
+- Os CBZ sao criados sem recompressao (as imagens ja sao JPEG) — rapido.
+- A velocidade depende da sua internet e do MangaFire; o programa baixa em
+  sequencia, sem sobrecarregar o site, e retoma de onde parou.
+- Funciona para qualquer manga do MangaFire — so trocar o link.
+- Outros sites suportados pelo gallery-dl tambem funcionam, mas a opcao
+  pt-br so vale para o MangaFire (nos outros, vale o idioma padrao do site).
+- Nada e tocado fora da pasta do programa e da pasta de destino.
+- Dica: para conferir se um capitulo ficou completo, abra o .cbz com
+  qualquer programa de ZIP e veja se as paginas estao em ordem (001, 002...).
+
+
+ONDE FICA CADA COISA
+--------------------
+    Baixador de Manga.ps1   script principal (linha de comando)
+    Baixar Manga.bat        atalho de duplo clique (modo simples)
+    Baixar Manga (Site).bat atalho do site completo (recomendado)
+    Site\                  o site: servidor local (Flask, porta 8765)
+      app.py               rotas do site
+      mangafire.py         leitura da API do MangaFire
+      jobs.py              fila de downloads + progresso/cancelamento
+      upscale.py           melhoria de imagem (Lanczos)
+      static\ templates\   interface (HTML/CSS/JS)
+    mangafire.json          configuracao (idioma pt-br padrao)
+    listar-volumes.py       lista os volumes na API (usado pelo -SoVolumes)
+    LEIA-ME.txt             este arquivo
+    Mangas\                 aqui ficam os downloads
+    Mangas\.download-archive.txt   controle de retomada (nao apague se
+                                   quiser retomar um download interrompido)
+
+Instalar de novo / reinstalar o gallery-dl:  pip install gallery-dl
