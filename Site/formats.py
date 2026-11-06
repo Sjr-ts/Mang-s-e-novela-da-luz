@@ -67,6 +67,53 @@ def find_item_folder(dest, item_start):
     return max(candidates, key=lambda p: len(p.parts))
 
 
+def _item_prefix(item):
+    """gallery-dl directory naming: c060 / c013.2 / v01 — deterministic prefix."""
+    if item.get("kind") == "volume":
+        try:
+            return f"v{int(item.get('number') or 0):02d}"
+        except (TypeError, ValueError):
+            return "v"
+    n = str(item.get("number") if item.get("number") is not None else "0")
+    i, dot, f = n.partition(".")
+    try:
+        i = int(float(i))
+    except ValueError:
+        i = 0
+    return f"c{i:03d}{dot + f if dot else ''}"
+
+
+def find_dir_for_item(dest, item, job_title=""):
+    """Locate the EXISTING page folder for an item whose pages are already on
+    disk (needed when everything was archive-skipped and the final file is
+    missing). Returns the folder, or None if ambiguous/not found."""
+    prefix = _item_prefix(item)
+    root = Path(dest) / "mangafire"
+    if not root.is_dir():
+        return None
+    candidates = []
+    for dirpath, dirnames, filenames in os.walk(root, onerror=lambda _e: None):
+        p = Path(dirpath)
+        if not p.name.startswith(prefix):
+            continue
+        if any(Path(f).suffix.lower() in IMAGE_EXTS for f in filenames):
+            candidates.append(p)
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1 and job_title:
+        # desempata pelo nome da pasta do mangá (mesma regra do gallery-dl)
+        norm = job_title
+        for bad, good in [("<", "_"), (">", "_"), (":", "_"), ('"', "_"),
+                          ("/", "_"), ("\\", "_"), ("|", "_"), ("?", "_"),
+                          ("*", "_"), ("  ", " "), (".", "_")]:
+            norm = norm.replace(bad, good)
+        candidates = [c for c in candidates
+                      if c.parent.name.replace(".", "_") == norm] or list(candidates)
+        if len(candidates) == 1:
+            return candidates[0]
+    return None
+
+
 def collect_pages(folder, old_archives):
     """Yield (display_name, image_bytes) in natural read order.
 
@@ -203,8 +250,9 @@ def build_epub(folder, out_path, archives, title, progress=None):
         '<head><meta charset="utf-8"/><title>' + safe_title + '</title></head>\n'
         '<body><nav epub:type="toc"><h1>' + safe_title + '</h1><ol>'
     )
-    for i, _name in enumerate(pages, 1):
-        nav += f'<li><a href="images/p{i:04d}{Path(_name).suffix.lower()}">Página {i}</a></li>\n'
+    for i, (name, _data) in enumerate(pages, 1):
+        ext = Path(name).suffix.lower()
+        nav += f'<li><a href="images/p{i:04d}{ext}">Página {i}</a></li>\n'
     nav += '</ol></nav></body></html>\n'
 
     container = (

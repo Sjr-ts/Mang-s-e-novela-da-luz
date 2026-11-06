@@ -352,6 +352,12 @@ class JobManager:
                         job.items_done += 1
                     continue
                 if itemdir is None:
+                    # tudo já baixado, mas o arquivo final pode não existir ainda
+                    itemdir = formats.find_dir_for_item(dest, item, job.title)
+                    if itemdir is not None:
+                        job.push_message(
+                            f"{label}: páginas já baixadas — montando o arquivo a partir delas.")
+                if itemdir is None:
                     _remove_empty_dirs(manga_root)
                     job.push_message(f"{label}: já estava tudo baixado.")
                     with job.lock:

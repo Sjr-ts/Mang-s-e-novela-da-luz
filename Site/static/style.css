@@ -82,6 +82,17 @@ body {
   50% { box-shadow: 0 0 0 5px rgba(61, 220, 132, 0); }
 }
 
+/* ============ POWER BUTTON ============ */
+.power-btn {
+  display: flex; align-items: center; gap: 7px; margin-left: 10px;
+  height: 34px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+  color: #ffb3b3; background: rgba(255, 93, 93, .07);
+  border: 1px solid rgba(255, 93, 93, .35); font-size: 12px; font-weight: 700;
+  transition: all .18s ease;
+}
+.power-btn:hover { background: rgba(255, 93, 93, .18); color: #ffd6d6; transform: translateY(-1px); }
+.power-btn svg { display: block; }
+
 /* ============ CONTAINER / PAGES ============ */
 .container { flex: 1; width: 100%; max-width: 1180px; margin: 0 auto; padding: 26px 24px 40px; }
 .page { display: none; animation: fadein .35s ease; }

@@ -19,8 +19,9 @@ MELHOR OPCAO — O SITE (recomendado)
 -----------------------------------
 De duplo clique em  Baixar Manga (Site).bat
 
-O navegador abre sozinho em  http://127.0.0.1:8765  com o programa
-completo e bonito. Tudo na mesma tela:
+A janela preta NAO aparece (servidor roda em segundo plano)
+e o navegador abre sozinho em  http://127.0.0.1:8765  com o programa
+completo. Tudo na mesma tela:
 
   1. Cole o link do manga e clique BUSCAR
      (funciona tambem com link de capitulo ou volume
@@ -30,25 +31,32 @@ completo e bonito. Tudo na mesma tela:
   3. Escolha na lista: capitulos OU volumes
        - "Selecionar todos" / "Limpar"
        - Faixa rapida: digite de/ate e aplicar
-       - Paginacao so no que interessa
   4. Opcoes:
        Idioma     -> pt-br, en, es, es-la, fr...
-       Resolucao  -> Original (como a fonte tem)
-                    | Melhorar 1.6x Lanczos (≈1000px)
-                    | Melhorar — largura 1000 px
-                    | Melhorar 2.0x Lanczos (≈1250px)
+       Formato    -> CBZ | PDF | EPUB | imagens soltas
+       Resolucao  -> Original | Lanczos 1.6x | 2.0x | largura 1000 px
+                    | Waifu2x anti-JPEG | Waifu2x cunet (demora mais)
        Edicao     -> Tudo disponivel | Somente oficiais (licenciadas)
        Pasta      -> troque se quiser salvar em outro lugar
   5. Clique BAIXAR: barra de progresso de verdade, com
      %, paginas (x/total), itens (x/total),
      tempo restante, botao CANCELAR e log tecnica
      ("Detalhes tecnicos" mostra o que esta acontecendo)
-  6. Aba BIBLIOTECA: ve tudo que ja foi baixado nesta pasta
-     (quantidade de CBZ e tamanho) e abre a pasta no Explorer
+  6. Aba BIBLIOTECA: ve tudo que ja foi baixado (CBZ/PDF/EPUB
+     separados por tipo e tamanho) e abre a pasta no Explorer
+  7. Botao DESLIGAR (canto superior direito): para o servidor
+     na hora — a aba mostra a confirmacao final.
+     (Ou feche o processo pelo Gerenciador de Tarefas.)
 
-Feche a janela preta do servidor para desligar o site.
-Se abrir o .bat de novo enquanto o servidor ja estiver rodando,
-ele so abre o navegador.
+Fechar a aba NAO desliga o servidor — use o botao DESLIGAR.
+Se clicar no .bat de novo com o servidor ja rodando,
+ele so abre o navegador (nao abre uma segunda instancia).
+
+PAROU NO MEIO? Os CBZ/PDF/EPUB feitos ficam la; as paginas
+já baixadas NAO sao baixadas de novo — basta clicar BAIXAR
+de novo com a mesma selecao e tudo e retomado automaticamente
+(ate mesmo o arquivo que falhou antes e remontado do que
+ja esta no disco).
 
 DICA DE QUALIDADE: em pt-br o MangaFire so tem a versao
 "scanlation" (imagens ≈625x904, com pequenos "losangos" do JPEG —
@@ -175,11 +183,14 @@ ONDE FICA CADA COISA
     Baixar Manga.bat        atalho de duplo clique (modo simples)
     Baixar Manga (Site).bat atalho do site completo (recomendado)
     Site\                  o site: servidor local (Flask, porta 8765)
-      app.py               rotas do site
+      app.py               rotas e API do site
       mangafire.py         leitura da API do MangaFire
-      jobs.py              fila de downloads + progresso/cancelamento
-      upscale.py           melhoria de imagem (Lanczos)
+      jobs.py              fila, progresso, retomada e cancelamento
+      formats.py           montagem de CBZ / PDF / EPUB (+ merge na retomada)
+      upscale.py           melhoria de imagem (Lanczos / Waifu2x)
+      verify.py            verificador/corretor da ordem de leitura (celular)
       static\ templates\   interface (HTML/CSS/JS)
+    tools\waifu2x\        (opcional) binario do Waifu2x para IA
     mangafire.json          configuracao (idioma pt-br padrao)
     listar-volumes.py       lista os volumes na API (usado pelo -SoVolumes)
     LEIA-ME.txt             este arquivo

@@ -11,7 +11,6 @@ import os
 import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, render_template, request
@@ -212,20 +211,25 @@ def api_cover():
         return "capa indisponível", 502
 
 
-def _count_cbz(root):
-    total, newest = 0, 0.0
+ARCHIVE_EXTS = (".cbz", ".pdf", ".epub")
+
+
+def _count_archives(root):
+    counts = {"cbz": 0, "pdf": 0, "epub": 0}
+    newest = 0.0
     try:
         for dirpath, _dirs, files in os.walk(root):
             for name in files:
-                if name.lower().endswith(".cbz"):
-                    total += 1
+                ext = os.path.splitext(name)[1].lower()
+                if ext in (".cbz", ".pdf", ".epub"):
+                    counts[ext[1:]] += 1
                     try:
                         newest = max(newest, os.path.getmtime(os.path.join(dirpath, name)))
                     except OSError:
                         pass
     except OSError:
         pass
-    return total, newest
+    return counts, newest
 
 
 @app.get("/api/library")
@@ -238,24 +242,30 @@ def api_library():
             full = os.path.join(mf_root, name)
             if not os.path.isdir(full):
                 continue
-            cbz, newest = _count_cbz(full)
+            counts, newest = _count_archives(full)
             size = 0
             try:
                 for dirpath, _dirs, files in os.walk(full):
                     for f in files:
-                        if f.lower().endswith(".cbz"):
+                        if os.path.splitext(f)[1].lower() in ARCHIVE_EXTS:
                             size += os.path.getsize(os.path.join(dirpath, f))
             except OSError:
                 pass
             items.append({
-                "name": name, "path": full, "cbz": cbz,
+                "name": name, "path": full,
+                "cbz": counts["cbz"], "pdf": counts["pdf"], "epub": counts["epub"],
+                "archives": counts["cbz"] + counts["pdf"] + counts["epub"],
                 "size": size, "newest": newest,
             })
     items.sort(key=lambda x: x["newest"], reverse=True)
     total_cbz = sum(i["cbz"] for i in items)
+    total_pdf = sum(i["pdf"] for i in items)
+    total_epub = sum(i["epub"] for i in items)
     total_size = sum(i["size"] for i in items)
     return jsonify({"ok": True, "dest": dest, "items": items,
                     "stats": {"manga": len(items), "cbz": total_cbz,
+                              "pdf": total_pdf, "epub": total_epub,
+                              "archives": total_cbz + total_pdf + total_epub,
                               "size": total_size}})
 
 
@@ -316,19 +326,20 @@ def api_ping():
     return jsonify({"ok": True, "time": time.time()})
 
 
+@app.post("/api/shutdown")
+def api_shutdown():
+    """Desliga o servidor local (usado pelo botão Desligar do site)."""
+    def _die():
+        time.sleep(0.4)          # dá tempo de a resposta chegar ao navegador
+        os._exit(0)
+    threading.Thread(target=_die, daemon=True).start()
+    return jsonify({"ok": True})
+
+
 # --------------------------------------------------------------------------
 # main
 # --------------------------------------------------------------------------
-def _open_browser(port):
-    time.sleep(1.2)
-    try:
-        webbrowser.open(f"http://127.0.0.1:{port}/")
-    except Exception:
-        log.exception("não consegui abrir o navegador")
-
-
 if __name__ == "__main__":
     port = int(os.environ.get("BAIXADOR_PORT", "8765"))
-    threading.Thread(target=_open_browser, args=(port,), daemon=True).start()
     # 127.0.0.1 apenas — ninguém de fora acessa esta máquina
     app.run(host="127.0.0.1", port=port, debug=False, threaded=True)

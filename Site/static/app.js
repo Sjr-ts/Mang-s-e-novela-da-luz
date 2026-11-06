@@ -104,6 +104,21 @@ formatSel.addEventListener('change', () => {
   keepRow.classList.toggle('hidden', formatSel.value === 'images');
 });
 
+/* ---------------- desligar o servidor ---------------- */
+$('#shutdownBtn').addEventListener('click', async () => {
+  if (!window.confirm('Desligar o Baixador de Manga?\n(O que estiver baixando agora será interrompido.)')) return;
+  try {
+    await fetchJson('/api/shutdown', { method: 'POST' });
+    document.body.innerHTML =
+      '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:Segoe UI,sans-serif;background:#0e0f13;color:#eef1f6">' +
+      '<h1 style="margin:0;font-size:22px">Servidor desligado</h1>' +
+      '<p style="margin:0;color:#a9b1c2">Pode fechar esta aba. Para abrir de novo, clique duas vezes em <strong>Baixar Manga (Site).bat</strong>.</p>' +
+      '</div>';
+  } catch (err) {
+    toast('Não consegui desligar: ' + err.message, 'err');
+  }
+});
+
 /* ---------------- navegação ---------------- */
 $$('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -467,21 +482,29 @@ async function loadLibrary() {
   try {
     const data = await fetchJson(`/api/library?dest=${encodeURIComponent(dest)}`);
     const s = data.stats;
-    $('#libStats').textContent = `${s.manga} mangá(s) · ${s.cbz} capítulo(s) CBZ · ${fmtBytes(s.size)} no total`;
+    const parts = [`${s.cbz} CBZ`];
+    if (s.pdf) parts.push(`${s.pdf} PDF`);
+    if (s.epub) parts.push(`${s.epub} EPUB`);
+    $('#libStats').textContent = `${s.manga} mangá(s) · ${parts.join(' · ')} · ${fmtBytes(s.size)} no total`;
     if (!data.items.length) {
       libraryGrid.innerHTML = '';
       $('#libEmpty').classList.remove('hidden');
       return;
     }
     $('#libEmpty').classList.add('hidden');
-    libraryGrid.innerHTML = data.items.map(m => `
+    libraryGrid.innerHTML = data.items.map(m => {
+      const breakdown = [`${m.cbz} CBZ`];
+      if (m.pdf) breakdown.push(`${m.pdf} PDF`);
+      if (m.epub) breakdown.push(`${m.epub} EPUB`);
+      return `
       <div class="lib-card">
         <h3>${escapeHtml(m.name)}</h3>
-        <div class="lib-meta"><b>${m.cbz}</b> CBZ · ${fmtBytes(m.size)}</div>
+        <div class="lib-meta"><b>${(m.archives || 0)}</b> arquivo(s) · ${breakdown.join(' · ')} · ${fmtBytes(m.size)}</div>
         <div class="lib-actions">
           <button class="ghost small open-lib" data-path="${escapeHtml(m.path)}">Abrir pasta</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   } catch (err) {
     libraryGrid.innerHTML = '';
     toast(err.message, 'err');
