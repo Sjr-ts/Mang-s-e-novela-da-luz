@@ -37,14 +37,13 @@ def image_names(path):
     )
 
 
-def find_item_folder(dest, item_start):
+def find_item_folder(dest, item_start, root_name="mangafire"):
     """Detect the item folder that was touched by the current download.
 
     gallery-dl recreates/fills the chapter folder on every run, so the folder
     containing pages and with mtime >= item_start belongs to this item.
-    Folders outside <dest>/mangafire are never scanned (permission-safe).
     """
-    root = Path(dest) / "mangafire"
+    root = Path(dest) / root_name
     if not root.is_dir():
         return None
     candidates = []
@@ -68,7 +67,8 @@ def find_item_folder(dest, item_start):
 
 
 def _item_prefix(item):
-    """gallery-dl directory naming: c060 / c013.2 / v01 — deterministic prefix."""
+    if item.get("prefix"):
+        return item["prefix"]
     if item.get("kind") == "volume":
         try:
             return f"v{int(item.get('number') or 0):02d}"
@@ -83,12 +83,12 @@ def _item_prefix(item):
     return f"c{i:03d}{dot + f if dot else ''}"
 
 
-def find_dir_for_item(dest, item, job_title=""):
+def find_dir_for_item(dest, item, job_title="", root_name="mangafire"):
     """Locate the EXISTING page folder for an item whose pages are already on
     disk (needed when everything was archive-skipped and the final file is
     missing). Returns the folder, or None if ambiguous/not found."""
     prefix = _item_prefix(item)
-    root = Path(dest) / "mangafire"
+    root = Path(dest) / root_name
     if not root.is_dir():
         return None
     candidates = []

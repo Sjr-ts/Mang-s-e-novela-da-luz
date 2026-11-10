@@ -5,18 +5,67 @@ Servidor Flask em 127.0.0.1:<porta> que serve a interface e conversa com a
 API do MangaFire + o motor de download (gallery-dl) por baixo.
 """
 
+import base64
 import json
+import re
 import logging
 import os
+import ssl
 import sys
 import threading
 import time
 from pathlib import Path
 
+# ----------------------------------------------------------------------------
+# Bundle CA = certifi + stores do Windows (ROOT/CA) -> corrige TLS com ESET MITM
+# ----------------------------------------------------------------------------
+def _build_ca_bundle():
+    try:
+        import certifi
+        parts = [open(certifi.where(), "rb").read()]
+        seen = set()
+        for store in ("ROOT", "CA"):
+            try:
+                entries = ssl.enum_certificates(store)
+            except Exception:
+                continue
+            for entry in entries:
+                cert = None
+                for item in entry:
+                    if isinstance(item, (bytes, str)) and (
+                            (isinstance(item, bytes) and item.startswith(b"\\x30"))
+                            or (isinstance(item, str) and "CERTIFICATE" in item)):
+                        cert = item
+                        break
+                if cert is None:
+                    continue
+                if isinstance(cert, str):
+                    if "BEGIN CERTIFICATE" not in cert:
+                        continue
+                    pem = cert
+                else:
+                    pem = "-----BEGIN CERTIFICATE-----\\n" + base64.encodebytes(cert).decode() + "-----END CERTIFICATE-----\\n"
+                h = hash(pem)
+                if h in seen:
+                    continue
+                seen.add(h)
+                parts.append(pem.encode())
+        bundle = b"".join(parts)
+        path = os.path.join(os.environ.get("TEMP", "."), "bm-ca-bundle.pem")
+        with open(path, "wb") as fh:
+            fh.write(bundle)
+        return path
+    except Exception:
+        return None
+
+_CA = _build_ca_bundle()
+if _CA and os.path.exists(_CA):
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", _CA)
+    os.environ.setdefault("CURL_CA_BUNDLE", _CA)
+
 from flask import Flask, Response, jsonify, render_template, request
 
-import mangafire
-from mangafire import MangaFireError
+import sites as sites_module
 import jobs as jobs_module
 import upscale
 import verify as verify_module
@@ -44,31 +93,88 @@ def index():
 # --------------------------------------------------------------------------
 @app.get("/api/info")
 def api_info():
-    url = request.args.get("url", "")
-    lang = request.args.get("lang", "pt-br")
+    url = (request.args.get("url") or "").strip()
+    lang = (request.args.get("lang") or "pt-br").strip()
+    site = request.args.get("site") or sites_module.detect(url)
+    adapter = sites_module.get(site)
+    if adapter is None:
+        return jsonify({"ok": False, "error": "Site não suportado."}), 400
+    if not getattr(adapter, "available", True):
+        return jsonify({"ok": False, "error": "%s está indisponível no momento." % adapter.label}), 400
     try:
-        manga = mangafire.get_manga(url)
-    except MangaFireError as exc:
+        info = adapter.get_info(url)
+    except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
-    lang = lang if lang in manga["languages"] else (
-        "pt-br" if "pt-br" in manga["languages"] else manga["languages"][0]
-        if manga["languages"] else "en")
+    url = info.get("url") or url
+    langs = info.get("languages") or adapter.langs
+    if lang not in langs:
+        lang = adapter.lang if adapter.lang in langs else (langs[0] if langs else adapter.lang)
 
     try:
-        chapters = mangafire.list_chapters(url, lang)
-    except MangaFireError as exc:
+        chapters_raw = adapter.list_chapters(url, lang)
+    except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
 
-    volumes = []
-    if manga["hasVolumes"]:
+    volumes_raw = []
+    if info.get("hasVolumes") or site == "mangafire":
         try:
-            volumes = mangafire.list_volumes(url, lang)
-        except MangaFireError:
-            volumes = []
+            volumes_raw = adapter.list_volumes(url, lang)
+        except Exception:
+            volumes_raw = []
+
+    # normaliza capítulos para o formato esperado pela UI
+    if site in ("webtoons", "naver"):
+        def _prefix(n):
+            try:
+                return "e%03d" % int(float(n))
+            except (TypeError, ValueError):
+                return "e" + str(n)
+    else:
+        def _prefix(n):
+            return None  # usa lógica padrão c/v
+
+    chapters = []
+    for c in chapters_raw:
+        chapters.append({
+            "kind": "chapter",
+            "id": c.get("id", c.get("url")),
+            "number": c.get("number"),
+            "name": c.get("label") or c.get("name", ""),
+            "url": c.get("url"),
+            "official": bool(c.get("official", adapter.official)),
+            "prefix": _prefix(c.get("number")),
+        })
+    volumes = []
+    for v in volumes_raw:
+        volumes.append({
+            "kind": "volume",
+            "id": v.get("id", v.get("url")),
+            "number": v.get("number"),
+            "name": v.get("label") or v.get("name", ""),
+            "url": v.get("url"),
+            "official": True,
+        })
+
+    manga = {
+        "title": info.get("title", "Sem título"),
+        "url": url,
+        "cover": info.get("cover", ""),
+        "description": info.get("description", ""),
+        "authors": info.get("authors", []),
+        "artists": info.get("artists", []),
+        "tags": info.get("genres", []),
+        "languages": langs,
+        "hasVolumes": bool(info.get("hasVolumes")),
+        "site": site,
+        "site_label": adapter.label,
+        "official_filter": bool(site in ("mangafire", "weebcentral")),
+    }
 
     return jsonify({
         "ok": True,
+        "site": site,
+        "site_label": adapter.label,
         "manga": manga,
         "lang": lang,
         "chapters": chapters,
@@ -78,20 +184,33 @@ def api_info():
             "chapters_official": sum(1 for c in chapters if c["official"]),
             "volumes": len(volumes),
         },
+        "languages": [{"code": l, "label": adapter.lang_labels.get(l, l)} for l in langs],
+        "official_filter": manga["official_filter"],
     })
 
 
 @app.get("/api/chapters")
 def api_chapters():
-    url = request.args.get("url", "")
-    lang = request.args.get("lang", "pt-br")
+    url = (request.args.get("url") or "").strip()
+    lang = (request.args.get("lang") or "pt-br").strip()
+    site = request.args.get("site") or sites_module.detect(url)
+    adapter = sites_module.get(site)
+    if adapter is None:
+        return jsonify({"ok": False, "error": "Site não suportado."}), 400
     try:
-        chapters = mangafire.list_chapters(url, lang)
-        volumes = mangafire.list_volumes(url, lang) if mangafire.get_manga(url)["hasVolumes"] else []
-    except MangaFireError as exc:
+        info = adapter.get_info(url)
+        url = info.get("url") or url
+        chapters_raw = adapter.list_chapters(url, lang)
+        volumes_raw = adapter.list_volumes(url, lang) if (info.get("hasVolumes") or site == "mangafire") else []
+    except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
-    return jsonify({"ok": True, "lang": lang,
-                    "chapters": chapters, "volumes": volumes})
+    chapters = [{"kind": "chapter", "id": c.get("id", c.get("url")), "number": c.get("number"),
+                 "name": c.get("label") or c.get("name", ""), "url": c.get("url"),
+                 "official": bool(c.get("official", adapter.official))} for c in chapters_raw]
+    volumes = [{"kind": "volume", "id": v.get("id", v.get("url")), "number": v.get("number"),
+                "name": v.get("label") or v.get("name", ""), "url": v.get("url"),
+                "official": True} for v in volumes_raw]
+    return jsonify({"ok": True, "site": site, "lang": lang, "chapters": chapters, "volumes": volumes})
 
 
 # --------------------------------------------------------------------------
@@ -101,6 +220,7 @@ def api_chapters():
 def api_download():
     data = request.get_json(silent=True) or {}
     url = (data.get("url") or "").strip()
+    site = data.get("site") or sites_module.detect(url)
     dest = (data.get("dest") or "").strip() or DEFAULT_DEST
     lang = (data.get("lang") or "pt-br").strip()
     resolution = data.get("resolution") or "original"
@@ -126,9 +246,19 @@ def api_download():
         for it in items:
             if it.get("kind") not in ("chapter", "volume"):
                 raise ValueError("tipo de item inválido")
-            int(it["id"])
-    except (ValueError, TypeError, KeyError):
-        return jsonify({"ok": False, "error": "Seleção inválida."}), 400
+            if site == "mangafire":
+                if it.get("id") is None and it.get("url"):
+                    # recupera id a partir da url do capítulo
+                    m = re.search(r"/chapter/(\\d+)", it["url"])
+                    if m:
+                        it["id"] = int(m.group(1))
+                int(it["id"])
+            else:
+                if not it.get("url"):
+                    raise ValueError("item sem url")
+    except (ValueError, TypeError, KeyError) as exc:
+        log.warning("selecao invalida: %s | site=%s | items=%r", exc, site, items[:2])
+        return jsonify({"ok": False, "error": "Seleção inválida: %s" % exc}), 400
 
     dest = os.path.abspath(dest)
     if not dest or dest == os.path.abspath("/"):
@@ -136,7 +266,7 @@ def api_download():
 
     try:
         job = jobs_module.manager.add_job({
-            "url": url, "dest": dest, "lang": lang,
+            "url": url, "site": site, "dest": dest, "lang": lang,
             "resolution": resolution, "format": output_format,
             "keep_images": keep_images, "official_only": official_only,
             "items": items, "title": title, "cover": cover,
@@ -194,8 +324,17 @@ def api_cover():
     from urllib.parse import urlparse
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    allowed = host.endswith("mangafire.to") or host.endswith("mfcdn.nl") \
-        or host.endswith("mfcdn1.xyz") or host.endswith("mfcdn2.xyz")
+    allowed_hosts = [
+        "mangafire.to", "mfcdn.nl", "mfcdn1.xyz", "mfcdn2.xyz",
+        "uploads.mangadex.org",
+        "temp.compsci88.com", "official.lowee.us",
+        "hiperdex.com", "hiper.to",
+        "webtoon-phinf.pstatic.net", "swebtoon-phinf.pstatic.net",
+        "thumbnail.naver.net", "pstatic.net", "comic.naver.com",
+        "bacakomik.my", "i0.wp.com", "i1.wp.com", "i2.wp.com",
+        "mpark.to", "mangapark.io", "mangapark.net",
+    ]
+    allowed = any(host == h or host.endswith("." + h) or host.endswith(h) for h in allowed_hosts)
     if not allowed:
         return "host não permitido", 403
 
@@ -236,10 +375,12 @@ def _count_archives(root):
 def api_library():
     dest = os.path.abspath(request.args.get("dest") or DEFAULT_DEST)
     items = []
-    mf_root = os.path.join(dest, "mangafire")
-    if os.path.isdir(mf_root):
-        for name in sorted(os.listdir(mf_root)):
-            full = os.path.join(mf_root, name)
+    for site_key, adapter in sites_module.ADAPTERS.items():
+        site_root = os.path.join(dest, adapter.folder)
+        if not os.path.isdir(site_root):
+            continue
+        for name in sorted(os.listdir(site_root)):
+            full = os.path.join(site_root, name)
             if not os.path.isdir(full):
                 continue
             counts, newest = _count_archives(full)
@@ -252,7 +393,8 @@ def api_library():
             except OSError:
                 pass
             items.append({
-                "name": name, "path": full,
+                "name": name, "path": full, "site": site_key,
+                "site_label": adapter.label,
                 "cbz": counts["cbz"], "pdf": counts["pdf"], "epub": counts["epub"],
                 "archives": counts["cbz"] + counts["pdf"] + counts["epub"],
                 "size": size, "newest": newest,
@@ -289,6 +431,34 @@ def api_open_folder():
     return jsonify({"ok": True})
 
 
+@app.get("/api/search")
+def api_search():
+    q = (request.args.get("q") or "").strip()
+    site = (request.args.get("site") or "").strip()
+    lang = (request.args.get("lang") or "").strip()
+    if not q:
+        return jsonify({"ok": False, "error": "Falta o termo de busca."}), 400
+    targets = [site] if site and site in sites_module.ADAPTERS else list(sites_module.ADAPTERS.keys())
+    results = []
+    for sk in targets:
+        adapter = sites_module.get(sk)
+        if adapter is None or not getattr(adapter, "available", True):
+            continue
+        try:
+            hits = adapter.search(q, lang or adapter.lang)
+        except Exception:
+            hits = []
+        for h in hits:
+            results.append({
+                "title": h.get("title", ""),
+                "url": h.get("url", ""),
+                "cover": h.get("cover"),
+                "site": sk,
+                "site_label": adapter.label,
+            })
+    return jsonify({"ok": True, "query": q, "results": results})
+
+
 @app.get("/api/system")
 def api_system():
     ai = upscale.ai_available()
@@ -297,7 +467,11 @@ def api_system():
         "formats": ["cbz", "pdf", "epub", "images"],
         "resolutions": list(upscale.MODES),
         "ai": {"available": bool(ai), "models": ai},
-        "version": "2.0.0",
+        "version": "3.0.0",
+        "sites": [{"key": k, "label": a.label, "available": bool(getattr(a, "available", True)),
+                   "langs": a.langs, "lang_labels": a.lang_labels,
+                   "official": a.official}
+                  for k, a in sites_module.ADAPTERS.items()],
     })
 
 

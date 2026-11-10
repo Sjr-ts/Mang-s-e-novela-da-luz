@@ -3,11 +3,14 @@
 
 O que este programa faz
 -----------------------
-Baixa os capitulos (ou os VOLUMES compilados) de um manga do
-MangaFire (em portugues, por padrao) e salva cada um ja no formato
-CBZ, dentro da pasta:
+Baixa os capitulos (ou os VOLUMES compilados) de mangas de VARIOS
+sites e salva cada um ja no formato CBZ/PDF/EPUB, dentro da pasta:
 
-    C:\Users\usuario\Documents\Baixador de Manga\Mangas\mangafire\Nome do Manga\
+    C:\Users\usuario\Documents\Baixador de Manga\Mangas\<site>\<Nome do Manga>\
+
+Sites suportados: MangaFire, MangaDex, WeebCentral, Hiperdex,
+LINE Webtoon, Naver Webtoon, Baca Komik (sucessor do Komikcast).
+(MangaPark indisponivel por protecao anti-bot.)
 
 Exemplo: c001.cbz, c002.cbz, ... c300.cbz
 

@@ -17,6 +17,7 @@ from gallery_dl import job as gd_job
 
 import formats
 import mangafire
+import sites as sites_module
 import upscale
 
 LOG_FILE = Path(__file__).resolve().parent / "logs" / "baixador.log"
@@ -29,6 +30,8 @@ logging.basicConfig(
 _log = logging.getLogger("baixador")
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 FORMATS = ("cbz", "pdf", "epub", "images")
 
 
@@ -84,7 +87,7 @@ class JobLogHandler(logging.Handler):
 
 
 def _remove_empty_dirs(root):
-    """Remove empty directories under <dest>/mangafire (left by gallery-dl)."""
+    """Remove empty directories under <root> (left by gallery-dl)."""
     root = Path(root)
     if not root.is_dir():
         return []
@@ -100,6 +103,116 @@ def _remove_empty_dirs(root):
     return removed
 
 
+def _safe_dirname(name):
+    bad = '<>:"/\\\\|?*'
+    out = "".join("_" if c in bad or ord(c) < 32 else c for c in (name or ""))
+    out = re.sub(r"\s+", " ", out).strip()
+    return out or "manga"
+
+
+def _item_prefix(item):
+    if item.get("prefix"):
+        return item["prefix"]
+    if item.get("kind") == "volume":
+        try:
+            return f"v{int(item.get('number') or 0):02d}"
+        except (TypeError, ValueError):
+            return "v"
+    n = str(item.get("number") if item.get("number") is not None else "0")
+    i, dot, f = n.partition(".")
+    try:
+        i = int(float(i))
+    except ValueError:
+        i = 0
+    return f"c{i:03d}{dot + f if dot else ''}"
+
+
+def _download_direct(job, item, url, manga_root, label):
+    """Download de imagens direto (sites sem extractor gallery-dl, ex. bacakomik)."""
+    adapter = sites_module.get(job.site)
+    imgs = adapter.reader_images(url)
+    if not imgs:
+        raise RuntimeError("nenhuma imagem encontrada")
+    title_dir = Path(manga_root) / _safe_dirname(job.title)
+    prefix = _item_prefix(item)
+    itemdir = title_dir / prefix
+    itemdir.mkdir(parents=True, exist_ok=True)
+
+    item_start = time.time()
+    for i, img in enumerate(imgs, 1):
+        if job.cancel_event.is_set():
+            raise JobCancel()
+        ext = os.path.splitext(img.split("?")[0])[1].lower() or ".jpg"
+        if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+            ext = ".jpg"
+        dest_path = itemdir / f"{i:03d}{ext}"
+        if dest_path.is_file() and dest_path.stat().st_size > 0:
+            # já baixada — apenas tick
+            with job.lock:
+                job.item_pages_done += 1
+                job.pages_done += 1
+            continue
+        try:
+            r = http().get(img, timeout=30, stream=True) if False else None
+        except Exception:
+            r = None
+        import requests as _rq
+        resp = _rq.get(img, headers={"User-Agent": UA}, timeout=30, stream=True)
+        resp.raise_for_status()
+        with open(dest_path, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=8192):
+                if chunk:
+                    fh.write(chunk)
+        with job.lock:
+            job.item_pages_done += 1
+            job.pages_done += 1
+    return itemdir
+
+
+def _existing_output(dest, item, site_folder="mangafire"):
+    """True if a final archive for this item exists (chapter/volume prefix)."""
+    root = Path(dest) / site_folder
+    if not root.is_dir():
+        return False
+    prefix = _item_prefix(item)
+    for dirpath, dirnames, filenames in os.walk(root, onerror=lambda _e: None):
+        for name in filenames:
+            lower = name.lower()
+            if (lower.endswith((".cbz", ".pdf", ".epub"))
+                    and os.path.basename(name).startswith(prefix)):
+                return True
+    return False
+
+
+def _strip_item_from_archive(dest, item, site_folder="mangafire", archive_name=None):
+    """Remove this item's rows from the download archive. Returns rows removed."""
+    if archive_name is None:
+        archive_name = ".download-archive.txt" if site_folder == "mangafire" else ".download-archive-%s.txt" % site_folder
+    archive = Path(dest) / archive_name
+    if not archive.is_file():
+        return 0
+    keys = []
+    if item.get("id") is not None:
+        keys.append(str(item["id"]))
+    if item.get("number") is not None:
+        keys.append(str(item["number"]))
+    if not keys:
+        return 0
+    try:
+        import sqlite3
+        total = 0
+        with sqlite3.connect(str(archive), timeout=60) as conn:
+            for key in keys:
+                cur = conn.execute(
+                    "DELETE FROM archive WHERE entry LIKE ? OR entry LIKE ?",
+                    (f"%_{key}_%", f"{key}_%"))
+                total += cur.rowcount
+        return total
+    except Exception as exc:
+        _log.warning("nao consegui ajustar o archive %s: %s", archive, exc)
+        return 0
+
+
 class Job:
     def __init__(self, payload):
         self.id = uuid.uuid4().hex[:12]
@@ -107,6 +220,7 @@ class Job:
         self.cancel_event = threading.Event()
 
         self.url = payload["url"]
+        self.site = payload.get("site") or sites_module.detect(self.url)
         self.title = payload.get("title") or ""
         self.cover = payload.get("cover") or ""
         self.dest = payload["dest"]
@@ -115,15 +229,23 @@ class Job:
         self.output_format = payload.get("format") or "cbz"
         self.keep_images = bool(payload.get("keep_images"))
         self.official_only = bool(payload.get("official_only"))
+        adapter = sites_module.get(self.site)
+        self.site_folder = getattr(adapter, "folder", "mangafire") if adapter else "mangafire"
 
         items = []
         for it in payload.get("items", []):
+            raw_id = it.get("id")
+            try:
+                raw_id = int(raw_id)
+            except (ValueError, TypeError):
+                pass
             items.append({
                 "kind": it["kind"],
-                "id": int(it["id"]),
+                "id": raw_id,
                 "number": it.get("number"),
                 "name": it.get("name") or "",
                 "official": bool(it.get("official", True)),
+                "url": it.get("url") or "",
             })
         if self.official_only:
             items = [it for it in items
@@ -274,7 +396,11 @@ class JobManager:
                          f"({job.lang}) -> {job.dest}")
 
         dest = job.dest
-        archive = os.path.join(dest, ".download-archive.txt")
+        if job.site == "mangafire":
+            archive_name = ".download-archive.txt"
+        else:
+            archive_name = ".download-archive-%s.txt" % job.site
+        archive = os.path.join(dest, archive_name)
         os.makedirs(dest, exist_ok=True)
 
         gd_config.setg("base-directory", dest)
@@ -282,81 +408,151 @@ class JobManager:
         gd_config.setg("archive", archive)
         gd_config.setg("postprocessors", [])  # montamos nós mesmos o arquivo final
 
+        # diretorios por site (per-episode para webtoons/naver)
+        try:
+            gd_config.set(("extractor", "webtoons"), "directory",
+                          ["{category}", "{comic}", "e{episode_no:>03}"])
+            gd_config.set(("extractor", "webtoons"), "bgm", False)
+            gd_config.set(("extractor", "webtoons"), "sleep-request", 0)
+            gd_config.set(("extractor", "naver-webtoon"), "directory",
+                          ["{category}", "{comic}", "e{episode:>03}"])
+            gd_config.set(("extractor", "naver-webtoon"), "sleep-request", 0)
+            gd_config.set(("extractor", "mangadex"), "directory",
+                          ["{category}", "{manga}", "c{chapter:>03}{chapter_minor}{title:?: //}"])
+            gd_config.set(("extractor", "mangadex"), "sleep-request", 0)
+            gd_config.set(("extractor", "weebcentral"), "sleep-request", 0)
+            gd_config.set(("extractor", "hiperdex"), "sleep-request", 0)
+        except Exception as exc:
+            _log.warning("config override failed: %s", exc)
+
         log_handler = JobLogHandler(job)
         root_logger = logging.getLogger()
         root_logger.addHandler(log_handler)
 
-        total = 0
-        page_counts = []
-        for it in job.items:
+        adapter = sites_module.get(job.site)
+        is_mf = (job.site == "mangafire")
+
+        def _count(it):
             try:
-                n = mangafire.item_pages(job.url, it)
+                if is_mf:
+                    # mangafire conta via item_url+id
+                    try:
+                        return mangafire.item_pages(job.url, it)
+                    except Exception:
+                        return 0
+                if adapter is not None and getattr(adapter, "custom_download", False):
+                    return adapter.item_pages(it.get("url") or "")
+                if adapter is not None:
+                    return adapter.item_pages(it.get("url") or "")
+                return 0
             except Exception as exc:
                 _log.warning("pages count failed for %s: %s", it, exc)
-                n = 0
+                return 0
+
+        BUDGET = 10
+        total = 0
+        page_counts = []
+        for idx, it in enumerate(job.items):
+            if idx < BUDGET:
+                n = _count(it)
+            else:
+                n = None
             page_counts.append(n)
-            total += n
+            total += n or 0
         with job.lock:
             job.pages_total = total
+        job.push_message("Páginas estimadas: %d (contagem completa sob demanda)." % total)
 
         try:
             for idx, item in enumerate(job.items):
                 if job.cancel_event.is_set():
                     break
                 label = _fmt_item(item)
-                url = mangafire.item_url(job.url, item)
+                if page_counts[idx] is None:
+                    n = _count(item)
+                    page_counts[idx] = n
+                    with job.lock:
+                        job.pages_total += n
+                if job.site == "mangafire":
+                    url = mangafire.item_url(job.url, item)
+                else:
+                    url = item.get("url") or ""
                 with job.lock:
                     job.item_index = idx
                     job.item_label = label
-                    job.item_pages_total = page_counts[idx]
+                    job.item_pages_total = page_counts[idx] or 0
                     job.item_pages_done = 0
                     job.item_started = time.time()
                     job.phase = "download"
                     job.phase_done = 0
-                    job.phase_total = page_counts[idx]
+                    job.phase_total = page_counts[idx] or 0
                 job.push_message(f"[{idx + 1}/{len(job.items)}] {label} — baixando...")
 
-                manga_root = os.path.join(dest, "mangafire")
+                manga_root = os.path.join(dest, job.site_folder)
                 item_start = time.time() - 2
-                try:
-                    dj = gd_job.DownloadJob(url)
-                    dj.out = CountingOutput(job)
-                    status = dj.run()
-                    if status:
-                        job.push_message(f"{label}: concluído com avisos (código {status}).")
-                    else:
-                        job.push_message(f"{label}: download ok.")
-                except JobCancel:
-                    _remove_empty_dirs(manga_root)
-                    job.push_message(f"{label}: cancelado.")
-                    with job.lock:
-                        job.status = "canceled"
-                        job.items_done = len(job.items)
-                        job.item_index = len(job.items)
-                    break
-                except Exception as exc:
-                    _log.exception("download failed %s", url)
-                    job.push_message(f"{label}: ERRO no download — {exc}")
-                    with job.lock:
-                        job.items_failed += 1
-                        job.items_done += 1
-                    continue
+                is_custom = bool(adapter is not None and
+                                 getattr(adapter, "custom_download", lambda: False)())
 
-                try:
-                    itemdir = formats.find_item_folder(dest, item_start)
-                except Exception as exc:
-                    _log.exception("item folder detection failed %s", url)
-                    job.push_message(f"{label}: ERRO localizando a pasta — {exc}")
-                    with job.lock:
-                        job.items_failed += 1
-                        job.items_done += 1
-                    continue
-                if itemdir is None:
-                    # tudo já baixado, mas o arquivo final pode não existir ainda
-                    itemdir = formats.find_dir_for_item(dest, item, job.title)
-                    if itemdir is not None:
-                        job.push_message(
-                            f"{label}: páginas já baixadas — montando o arquivo a partir delas.")
+                if is_custom:
+                    # download direto (bacakomik e outros sem extractor gallery-dl)
+                    try:
+                        itemdir = _download_direct(job, item, url, manga_root, label)
+                        if itemdir is None:
+                            raise RuntimeError("sem pasta")
+                    except JobCancel:
+                        _remove_empty_dirs(manga_root)
+                        job.push_message(f"{label}: cancelado.")
+                        with job.lock:
+                            job.status = "canceled"
+                            job.items_done = len(job.items)
+                            job.item_index = len(job.items)
+                        break
+                    except Exception as exc:
+                        _log.exception("download failed %s", url)
+                        job.push_message(f"{label}: ERRO no download — {exc}")
+                        with job.lock:
+                            job.items_failed += 1
+                            job.items_done += 1
+                        continue
+                else:
+                    try:
+                        dj = gd_job.DownloadJob(url)
+                        dj.out = CountingOutput(job)
+                        status = dj.run()
+                        if status:
+                            job.push_message(f"{label}: concluído com avisos (código {status}).")
+                        else:
+                            job.push_message(f"{label}: download ok.")
+                    except JobCancel:
+                        _remove_empty_dirs(manga_root)
+                        job.push_message(f"{label}: cancelado.")
+                        with job.lock:
+                            job.status = "canceled"
+                            job.items_done = len(job.items)
+                            job.item_index = len(job.items)
+                        break
+                    except Exception as exc:
+                        _log.exception("download failed %s", url)
+                        job.push_message(f"{label}: ERRO no download — {exc}")
+                        with job.lock:
+                            job.items_failed += 1
+                            job.items_done += 1
+                        continue
+
+                    try:
+                        itemdir = formats.find_item_folder(dest, item_start, job.site_folder)
+                    except Exception as exc:
+                        _log.exception("item folder detection failed %s", url)
+                        job.push_message(f"{label}: ERRO localizando a pasta — {exc}")
+                        with job.lock:
+                            job.items_failed += 1
+                            job.items_done += 1
+                        continue
+                    if itemdir is None:
+                        itemdir = formats.find_dir_for_item(dest, item, job.title, job.site_folder)
+                        if itemdir is not None:
+                            job.push_message(
+                                f"{label}: páginas já baixadas — montando o arquivo a partir delas.")
                 if itemdir is None:
                     _remove_empty_dirs(manga_root)
                     job.push_message(f"{label}: já estava tudo baixado.")

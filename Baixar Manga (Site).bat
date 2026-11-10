@@ -15,7 +15,7 @@ if %errorlevel%==0 (
   exit /b 0
 )
 rem --- inicia o servidor em segundo plano, sem janela preta ---
-start "" /min pythonw "Site\app.py"
+start "" /min "C:\Users\usuario\AppData\Local\Programs\Python\Python313\pythonw.exe" "Site\app.py"
 rem --- espera a porta responder (max 15s) e abre o navegador ---
 powershell -NoProfile -Command "$ok=$false; for ($i=0; $i -lt 30; $i++) { try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8765/api/ping' -TimeoutSec 1 -UseBasicParsing; if ($r.StatusCode -eq 200) { $ok=$true; break } } catch { Start-Sleep -Milliseconds 500 } }; if (-not $ok) { exit 1 }; Start-Process 'http://127.0.0.1:8765/'"
 if %errorlevel% neq 0 (

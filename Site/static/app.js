@@ -85,6 +85,16 @@ async function loadSystem() {
     state.system = { ok: true, ai: { available: false, models: {} } };
   }
   // desabilita opções de IA se o Waifu2x não estiver instalado
+  // popula seletor de sites para busca por nome
+  const siteSel = $('#siteSearchSel');
+  if (siteSel && state.system.sites) {
+    state.system.sites.forEach(s => {
+      if (!s.available) return;
+      const o = document.createElement('option');
+      o.value = s.key; o.textContent = s.label;
+      siteSel.appendChild(o);
+    });
+  }
   const aiModels = (state.system.ai && state.system.ai.models) || {};
   $$('#resSel option[data-ai]').forEach(opt => {
     const mode = opt.dataset.ai;
@@ -147,20 +157,56 @@ urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); }
 searchBtn.addEventListener('click', doSearch);
 
 async function doSearch() {
-  const url = urlInput.value.trim();
-  if (!url) { toast('Cole o link do mangá primeiro.', 'err'); return; }
+  const raw = urlInput.value.trim();
+  if (!raw) { toast('Cole o link ou digite o nome do mangá.', 'err'); return; }
+  const isUrl = /^https?:\/\//i.test(raw);
   searchBtn.disabled = true;
   searchBtn.innerHTML = '<span>Buscando…</span>';
   try {
-    const data = await fetchJson(`/api/info?url=${encodeURIComponent(url)}&lang=${encodeURIComponent(state.lang)}`);
-    applyInfo(data);
-    toast(`${data.manga.title} — ${data.chapters.length} capítulos encontrados.`, 'ok');
+    if (isUrl) {
+      const data = await fetchJson(`/api/info?url=${encodeURIComponent(raw)}&lang=${encodeURIComponent(state.lang)}`);
+      applyInfo(data);
+      toast(`${data.manga.title} — ${data.chapters.length} capítulos encontrados.`, 'ok');
+    } else {
+      // busca por nome
+      const site = ($('#siteSearchSel') ? $('#siteSearchSel').value : '') || '';
+      const data = await fetchJson(`/api/search?q=${encodeURIComponent(raw)}${site ? '&site=' + encodeURIComponent(site) : ''}`);
+      renderSearchResults(data.results || []);
+      if (!(data.results || []).length) toast('Nenhum resultado. Tente outro termo ou cole o link.', 'err', 4000);
+    }
   } catch (err) {
     toast(err.message, 'err', 6000);
   } finally {
     searchBtn.disabled = false;
     searchBtn.innerHTML = '<span>Buscar</span>';
   }
+}
+
+function renderSearchResults(results) {
+  let box = $('#searchResults');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'searchResults';
+    box.className = 'search-results';
+    $('#resultCard').before ? $('#resultCard').before(box) : $('#resultCard').parentNode.insertBefore(box, $('#resultCard'));
+  }
+  if (!results.length) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = results.map(r => `
+    <div class="search-result" data-url="${escapeHtml(r.url)}">
+      ${r.cover ? `<img src="/api/cover?u=${encodeURIComponent(r.cover)}" loading="lazy" alt="">` : '<div class="sr-ph"></div>'}
+      <div class="sr-meta">
+        <div class="sr-title">${escapeHtml(r.title)}</div>
+        <div class="sr-site">${escapeHtml(r.site_label || r.site)}</div>
+      </div>
+    </div>`).join('');
+  box.querySelectorAll('.search-result').forEach(el => {
+    el.addEventListener('click', () => {
+      urlInput.value = el.dataset.url;
+      box.classList.add('hidden');
+      doSearch();
+    });
+  });
 }
 
 function applyInfo(data) {
@@ -175,6 +221,9 @@ function applyInfo(data) {
   $('#coverImg').src = data.manga.cover
     ? `/api/cover?u=${encodeURIComponent(data.manga.cover)}` : '';
   $('#mTitle').textContent = data.manga.title;
+  // badge do site
+  const siteBadge = $('#siteBadge');
+  if (siteBadge) siteBadge.textContent = data.site_label || data.manga.site_label || '';
   const alt = (data.manga.alt_titles || []).slice(0, 4);
   $('#mAlt').textContent = alt.length ? alt.join(' · ') : '';
   $('#mAuthors').textContent = [...(data.manga.authors || []), ...(data.manga.artists || [])].join(' · ');
@@ -194,11 +243,22 @@ function applyInfo(data) {
   ];
   $('#mStats').innerHTML = pills.join('');
 
-  // idioma select
+  // idioma select (usa labels do site quando disponível)
   const langSel = $('#langSel');
-  langSel.innerHTML = (data.manga.languages || []).map(l =>
-    `<option value="${escapeHtml(l)}"${l === data.lang ? ' selected' : ''}>${escapeHtml(LANG_LABELS[l] || l)}</option>`
-  ).join('');
+  const langs = data.languages && data.languages.length ? data.languages : (data.manga.languages || []).map(c => ({ code: c, label: (LANG_LABELS[c] || c) }));
+  langSel.innerHTML = langs.map(l => {
+    const code = typeof l === 'string' ? l : l.code;
+    const label = typeof l === 'string' ? (LANG_LABELS[l] || l) : (l.label || LANG_LABELS[l.code] || l.code);
+    return `<option value="${escapeHtml(code)}"${code === data.lang ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
+
+  // esconde "Edição" se o site não tem filtro oficial
+  const qualGroup = $('#qualitySel') ? $('#qualitySel').closest('.opt-group') : null;
+  if (qualGroup) qualGroup.classList.toggle('hidden', !data.official_filter);
+
+  // esconde aba Volumes se não houver
+  const volTab = document.querySelector('.tab[data-tab="volumes"]');
+  if (volTab) volTab.classList.toggle('hidden', !(data.volumes && data.volumes.length));
 
   // tabs counts
   $('#tabCountCh').textContent = state.chapters.length;

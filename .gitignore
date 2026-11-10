@@ -5,7 +5,9 @@ Mangas/
 *.pdf
 *.epub
 *.download-archive.txt
+.download-archive-*.txt
 .download-archive.txt
+.download-archive-*.txt
 .volumes-urls.txt
 .upscaled.json
 
