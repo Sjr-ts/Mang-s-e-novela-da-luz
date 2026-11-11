@@ -368,8 +368,13 @@ class JobManager:
     def _next_queued(self):
         with self.lock:
             for j in self.jobs:
-                if j.status == "queued":
+                if j.status == "queued" and not j.cancel_event.is_set():
                     return j
+            # jobs cancelados na fila: marca como canceled para nao ficar eterno
+            for j in self.jobs:
+                if j.status == "queued" and j.cancel_event.is_set():
+                    j.status = "canceled"
+                    j.finished = time.time()
         return None
 
     def _worker(self):
@@ -530,7 +535,13 @@ class JobManager:
                         continue
                 else:
                     try:
-                        dj = gd_job.DownloadJob(url)
+                        # resolve o extractor explicitamente (evita NoExtractorError
+                        # em processos longos onde o cache do gallery-dl se corrompe)
+                        from gallery_dl import extractor as _gd_extr
+                        extr = _gd_extr.find(url)
+                        if extr is None:
+                            raise RuntimeError("nenhum extractor para " + url)
+                        dj = gd_job.DownloadJob(extr)
                         dj.out = CountingOutput(job)
                         status = dj.run()
                         if status:
