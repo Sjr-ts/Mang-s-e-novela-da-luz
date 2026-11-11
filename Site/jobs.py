@@ -452,7 +452,13 @@ class JobManager:
         BUDGET = 10
         total = 0
         page_counts = []
+        job._already_done = []
         for idx, it in enumerate(job.items):
+            if _existing_output(dest, it, job.site_folder):
+                # CBZ/PDF/EPUB final ja existe: nao rebaixa
+                job._already_done.append(idx)
+                page_counts.append(0)
+                continue
             if idx < BUDGET:
                 n = _count(it)
             else:
@@ -461,6 +467,8 @@ class JobManager:
             total += n or 0
         with job.lock:
             job.pages_total = total
+        if job._already_done:
+            job.push_message("%d item(ns) ja estavam baixados (CBZ existente) - pulando." % len(job._already_done))
         job.push_message("Páginas estimadas: %d (contagem completa sob demanda)." % total)
 
         try:
@@ -468,6 +476,12 @@ class JobManager:
                 if job.cancel_event.is_set():
                     break
                 label = _fmt_item(item)
+                if idx in getattr(job, "_already_done", []):
+                    job.push_message(f"[{idx + 1}/{len(job.items)}] {label} — já baixado (CBZ existente), pulando.")
+                    with job.lock:
+                        job.items_done += 1
+                        job.phase = ""
+                    continue
                 if page_counts[idx] is None:
                     n = _count(item)
                     page_counts[idx] = n
@@ -555,8 +569,10 @@ class JobManager:
                                 f"{label}: páginas já baixadas — montando o arquivo a partir delas.")
                 if itemdir is None:
                     _remove_empty_dirs(manga_root)
-                    job.push_message(f"{label}: já estava tudo baixado.")
+                    # archive diz que esta baixado mas nao ha pasta nem CBZ: erro real
+                    job.push_message(f"{label}: AVISO - paginas no archive mas pasta/CBZ ausentes; rebaixe manualmente.")
                     with job.lock:
+                        job.items_failed += 1
                         job.items_done += 1
                         job.phase = ""
                     continue
@@ -648,7 +664,11 @@ class JobManager:
                 job.item_label = ""
                 job.item_index = len(job.items)
                 job.phase = ""
-        job.push_message(f"Concluído.{_failure_suffix(job)}")
+        done_new = job.items_done - len(getattr(job, "_already_done", []))
+        if done_new <= 0 and not job.items_failed:
+            job.push_message("Nada a fazer: todos os itens ja estavam baixados." + _failure_suffix(job))
+        else:
+            job.push_message("Concluido: %d item(ns) processado(s).%s" % (done_new, _failure_suffix(job)))
 
     # -- helpers -----------------------------------------------------------
     @staticmethod
