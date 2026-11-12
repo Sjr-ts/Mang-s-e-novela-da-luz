@@ -419,6 +419,7 @@ downloadBtn.addEventListener('click', async () => {
     resolution: $('#resSel').value,
     format: formatSel.value,
     keep_images: $('#keepImages').checked,
+    force: $('#forceRedownload') ? $('#forceRedownload').checked : false,
     official_only: $('#qualitySel').value === 'official',
     items,
   };

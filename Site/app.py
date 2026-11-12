@@ -227,6 +227,7 @@ def api_download():
     output_format = data.get("format") or "cbz"
     keep_images = bool(data.get("keep_images"))
     official_only = bool(data.get("official_only"))
+    force = bool(data.get("force"))
     items = data.get("items") or []
     title = data.get("title") or ""
     cover = data.get("cover") or ""
@@ -269,7 +270,7 @@ def api_download():
             "url": url, "site": site, "dest": dest, "lang": lang,
             "resolution": resolution, "format": output_format,
             "keep_images": keep_images, "official_only": official_only,
-            "items": items, "title": title, "cover": cover,
+            "force": force, "items": items, "title": title, "cover": cover,
         })
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400

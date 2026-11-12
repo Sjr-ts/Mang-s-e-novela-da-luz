@@ -229,6 +229,7 @@ class Job:
         self.output_format = payload.get("format") or "cbz"
         self.keep_images = bool(payload.get("keep_images"))
         self.official_only = bool(payload.get("official_only"))
+        self.force = bool(payload.get("force"))
         adapter = sites_module.get(self.site)
         self.site_folder = getattr(adapter, "folder", "mangafire") if adapter else "mangafire"
 
@@ -459,7 +460,7 @@ class JobManager:
         page_counts = []
         job._already_done = []
         for idx, it in enumerate(job.items):
-            if _existing_output(dest, it, job.site_folder):
+            if (not job.force) and _existing_output(dest, it, job.site_folder):
                 # CBZ/PDF/EPUB final ja existe: nao rebaixa
                 job._already_done.append(idx)
                 page_counts.append(0)
@@ -487,6 +488,17 @@ class JobManager:
                         job.items_done += 1
                         job.phase = ""
                     continue
+                if job.force:
+                    # forca re-download: remove CBZ existente e limpa archive
+                    pref = _item_prefix(item)
+                    root = Path(dest) / job.site_folder
+                    for ext in (".cbz", ".pdf", ".epub"):
+                        for p in root.rglob(pref + "*" + ext) if root.is_dir() else []:
+                            try:
+                                p.unlink()
+                            except OSError:
+                                pass
+                    _strip_item_from_archive(dest, item, job.site_folder)
                 if page_counts[idx] is None:
                     n = _count(item)
                     page_counts[idx] = n
