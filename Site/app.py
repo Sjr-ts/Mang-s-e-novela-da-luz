@@ -134,11 +134,17 @@ def api_info():
         def _prefix(n):
             return None  # usa lógica padrão c/v
 
+    def _prefix_v(n):
+        try:
+            return "v%02d" % int(float(n))
+        except (TypeError, ValueError):
+            return None
+
     chapters = []
     for c in chapters_raw:
         chapters.append({
             "kind": "chapter",
-            "id": c.get("id", c.get("url")),
+            "id": c.get("id") if c.get("id") is not None else c.get("url"),
             "number": c.get("number"),
             "name": c.get("label") or c.get("name", ""),
             "url": c.get("url"),
@@ -149,11 +155,12 @@ def api_info():
     for v in volumes_raw:
         volumes.append({
             "kind": "volume",
-            "id": v.get("id", v.get("url")),
+            "id": v.get("id") if v.get("id") is not None else v.get("url"),
             "number": v.get("number"),
             "name": v.get("label") or v.get("name", ""),
             "url": v.get("url"),
             "official": True,
+            "prefix": _prefix_v(v.get("number")),
         })
 
     manga = {
@@ -204,10 +211,19 @@ def api_chapters():
         volumes_raw = adapter.list_volumes(url, lang) if (info.get("hasVolumes") or site == "mangafire") else []
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
-    chapters = [{"kind": "chapter", "id": c.get("id", c.get("url")), "number": c.get("number"),
+    def _ep_prefix(n):
+        if site not in ("webtoons", "naver") or n is None:
+            return None
+        try:
+            return "e%03d" % int(float(n))
+        except (TypeError, ValueError):
+            return None
+    chapters = [{"kind": "chapter", "id": c.get("id") or c.get("url"), "number": c.get("number"),
                  "name": c.get("label") or c.get("name", ""), "url": c.get("url"),
-                 "official": bool(c.get("official", adapter.official))} for c in chapters_raw]
-    volumes = [{"kind": "volume", "id": v.get("id", v.get("url")), "number": v.get("number"),
+                 "official": bool(c.get("official", adapter.official)),
+                 "prefix": _ep_prefix(c.get("number"))}
+                for c in chapters_raw]
+    volumes = [{"kind": "volume", "id": v.get("id") or v.get("url"), "number": v.get("number"),
                 "name": v.get("label") or v.get("name", ""), "url": v.get("url"),
                 "official": True} for v in volumes_raw]
     return jsonify({"ok": True, "site": site, "lang": lang, "chapters": chapters, "volumes": volumes})
@@ -249,8 +265,8 @@ def api_download():
                 raise ValueError("tipo de item inválido")
             if site == "mangafire":
                 if it.get("id") is None and it.get("url"):
-                    # recupera id a partir da url do capítulo
-                    m = re.search(r"/chapter/(\\d+)", it["url"])
+                    # recupera id a partir da url do capítulo/volume
+                    m = re.search(r"/(?:chapter|volume)/(\d+)", it["url"])
                     if m:
                         it["id"] = int(m.group(1))
                 int(it["id"])

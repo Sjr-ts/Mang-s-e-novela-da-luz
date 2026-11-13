@@ -102,6 +102,23 @@ Write-Host ''
 Write-Host '  BAIXADOR DE MANGA  (MangaFire - pt-br - CBZ)' -ForegroundColor Magenta
 Write-Host ''
 
+# --- localizar o Python (runtime integrado tem prioridade) ---------------
+function Get-ProjectPython {
+    $toolDir = $ToolDir
+    $candidates = @()
+    $rt = Join-Path $toolDir 'runtime\python\python.exe'
+    if (Test-Path $rt) { $candidates += $rt }
+    $sysPy = Get-Command python -ErrorAction SilentlyContinue
+    if ($sysPy) { $candidates += $sysPy.Source }
+    $sysPy3 = Get-Command python3 -ErrorAction SilentlyContinue
+    if ($sysPy3) { $candidates += $sysPy3.Source }
+    foreach ($c in $candidates) {
+        & $c -c "import gallery_dl, flask" *> $null
+        if ($LASTEXITCODE -eq 0) { return $c }
+    }
+    return $null
+}
+
 # --- localizar o gallery-dl (ou o modulo Python) -------------------------
 $runner     = $null
 $runnerArgs = @()
@@ -109,17 +126,33 @@ $gd = Get-Command gallery-dl -ErrorAction SilentlyContinue
 if ($gd) {
     $runner = $gd.Source
 } else {
-    $py = Get-Command python -ErrorAction SilentlyContinue
+    $py = Get-ProjectPython
     if ($py) {
-        & $py.Source -m gallery_dl --version *> $null
+        & $py -m gallery_dl --version *> $null
         if ($LASTEXITCODE -eq 0) {
-            $runner     = $py.Source
+            $runner     = $py
             $runnerArgs = @('-m', 'gallery_dl')
         }
     }
     if (-not $runner) {
+        # tenta instalar o python integrado
+        $inst = Join-Path $ToolDir 'Instalar Python Integrado.ps1'
+        if (Test-Path $inst) {
+            Write-Host 'Python/gallery-dl nao encontrados; instalando Python integrado...' -ForegroundColor Yellow
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $inst
+            $py = Get-ProjectPython
+            if ($py) {
+                & $py -m gallery_dl --version *> $null
+                if ($LASTEXITCODE -eq 0) {
+                    $runner     = $py
+                    $runnerArgs = @('-m', 'gallery_dl')
+                }
+            }
+        }
+    }
+    if (-not $runner) {
         Write-Erro 'gallery-dl nao encontrado.'
-        Write-Host 'Instale com:  pip install gallery-dl'
+        Write-Host 'Instale com:  pip install gallery-dl  (ou rode Instalar Python Integrado.ps1)'
         exit 1
     }
 }
@@ -175,8 +208,7 @@ if ($SoVolumes) {
         Write-Erro "Arquivo listar-volumes.py nao encontrado em: $ToolDir"
         exit 1
     }
-    $pyExe = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if (-not $pyExe) { $pyExe = (Get-Command python3 -ErrorAction SilentlyContinue).Source }
+    $pyExe = Get-ProjectPython
     if (-not $pyExe) {
         Write-Erro 'python nao encontrado (necessario para listar os volumes).'
         exit 1

@@ -37,24 +37,28 @@ def image_names(path):
     )
 
 
-def find_item_folder(dest, item_start, root_name="mangafire"):
+def find_item_folder(dest, item_start, root_name="mangafire", title=""):
     """Detect the item folder that was touched by the current download.
 
     gallery-dl recreates/fills the chapter folder on every run, so the folder
     containing pages and with mtime >= item_start belongs to this item.
+    `title` limits the search to this manga's folder (never another one).
     """
     root = Path(dest) / root_name
     if not root.is_dir():
         return None
+    scope = _title_folder(root, title) if title else None
+    if scope is None:
+        return None
     candidates = []
-    for dirpath, _dirnames, filenames in os.walk(root, onerror=lambda _e: None):
+    for dirpath, _dirnames, filenames in os.walk(scope, onerror=lambda _e: None):
         p = Path(dirpath)
         images = [f for f in filenames
                   if Path(f).suffix.lower() in IMAGE_EXTS]
         if not images:
             continue
         try:
-            # a pasta do capítulo fica exatamente em mangafire/<manga>/<capítulo>
+            # a pasta do capítulo fica exatamente em <obra>/<capítulo>
             if len(p.parts) < len(root.parts) + 2:
                 continue
             if os.path.getmtime(p) >= item_start - 1:
@@ -66,7 +70,34 @@ def find_item_folder(dest, item_start, root_name="mangafire"):
     return max(candidates, key=lambda p: len(p.parts))
 
 
-def _item_prefix(item):
+def _norm_title(name):
+    return re.sub(r"[^a-z0-9]+", "", (name or "").lower())
+
+
+def _title_folder(root, title):
+    """Pasta da obra dentro de `root` (comparacao sem acento/caixa/traço)."""
+    try:
+        entries = [e for e in os.listdir(root)
+                   if os.path.isdir(os.path.join(root, e))]
+    except OSError:
+        return None
+    if not entries:
+        return None
+    want = _norm_title(title)
+    if not want:
+        return Path(root) / entries[0] if len(entries) == 1 else None
+    for e in entries:
+        if _norm_title(e) == want:
+            return Path(root) / e
+    cands = [e for e in entries
+             if len(want) >= 4 and len(_norm_title(e)) >= 4
+             and (want in _norm_title(e) or _norm_title(e) in want)]
+    if len(cands) == 1:
+        return Path(root) / cands[0]
+    return None
+
+
+def _item_prefix(item, site_folder=""):
     if item.get("prefix"):
         return item["prefix"]
     if item.get("kind") == "volume":
@@ -74,43 +105,63 @@ def _item_prefix(item):
             return f"v{int(item.get('number') or 0):02d}"
         except (TypeError, ValueError):
             return "v"
-    n = str(item.get("number") if item.get("number") is not None else "0")
+    raw = item.get("number")
+    try:
+        if float(raw).is_integer():
+            n = str(int(raw))
+        else:
+            n = str(raw)
+    except (TypeError, ValueError):
+        n = str(raw) if raw is not None else "0"
     i, dot, f = n.partition(".")
     try:
         i = int(float(i))
     except ValueError:
         i = 0
-    return f"c{i:03d}{dot + f if dot else ''}"
+    letter = "e" if site_folder in ("webtoons", "naver-webtoon") else "c"
+    return f"{letter}{i:03d}{dot + f if dot else ''}"
+
+
+def _name_matches_item(name, item, prefix):
+    """Casamento EXATO do nome com o item (c001, c001_Titulo, e012, v03)."""
+    stem = os.path.splitext(str(name))[0]
+    if prefix and (stem == prefix or stem.startswith(prefix + "_")
+                   or stem.startswith(prefix + "-")
+                   or ("." in prefix and stem.startswith(prefix + "."))):
+        return True
+    token = re.split(r"[_\s]", stem, 1)[0]
+    m = re.match(r"^[A-Za-z]*?(\d+)(?:\.(\d+))?$", token)
+    if not m or item.get("number") is None:
+        return False
+    try:
+        got = float(m.group(1)) + (float("0." + m.group(2)) if m.group(2) else 0.0)
+        want = float(item["number"])
+    except (TypeError, ValueError):
+        return False
+    return abs(got - want) < 1e-6
 
 
 def find_dir_for_item(dest, item, job_title="", root_name="mangafire"):
     """Locate the EXISTING page folder for an item whose pages are already on
     disk (needed when everything was archive-skipped and the final file is
     missing). Returns the folder, or None if ambiguous/not found."""
-    prefix = _item_prefix(item)
+    prefix = _item_prefix(item, root_name)
     root = Path(dest) / root_name
     if not root.is_dir():
         return None
+    scope = _title_folder(root, job_title) if job_title else None
+    if scope is None:
+        # sem a pasta da obra nao ha como saber de qual mangá é a pagina
+        return None
     candidates = []
-    for dirpath, dirnames, filenames in os.walk(root, onerror=lambda _e: None):
+    for dirpath, _dirnames, filenames in os.walk(scope, onerror=lambda _e: None):
         p = Path(dirpath)
-        if not p.name.startswith(prefix):
+        if not _name_matches_item(p.name, item, prefix):
             continue
         if any(Path(f).suffix.lower() in IMAGE_EXTS for f in filenames):
             candidates.append(p)
     if len(candidates) == 1:
         return candidates[0]
-    if len(candidates) > 1 and job_title:
-        # desempata pelo nome da pasta do mangá (mesma regra do gallery-dl)
-        norm = job_title
-        for bad, good in [("<", "_"), (">", "_"), (":", "_"), ('"', "_"),
-                          ("/", "_"), ("\\", "_"), ("|", "_"), ("?", "_"),
-                          ("*", "_"), ("  ", " "), (".", "_")]:
-            norm = norm.replace(bad, good)
-        candidates = [c for c in candidates
-                      if c.parent.name.replace(".", "_") == norm] or list(candidates)
-        if len(candidates) == 1:
-            return candidates[0]
     return None
 
 

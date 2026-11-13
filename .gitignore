@@ -30,3 +30,6 @@ Site/logs/
 # ===== sistema =====
 Thumbs.db
 .DS_Store
+
+# ===== python integrado (gerado pelo instalador) =====
+runtime/

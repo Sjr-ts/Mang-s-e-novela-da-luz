@@ -27,11 +27,16 @@ mesmo no celular. Tudo no seu PC — nada é enviado para a nuvem.
 
 ## Requisitos
 
-- Windows 10/11, Python 3.10+ e [gallery-dl](https://github.com/mikf/gallery-dl)
+- Windows 10/11
+- **Python não é mais necessário**: o projeto traz um instalador que baixa e
+  configura um Python embeddable oficial (python.org) dentro da pasta `runtime/`
+  no primeiro uso (`Instalar Python Integrado.ps1`). Funciona também com um
+  Python do sistema se já estiver instalado com as dependências.
 - Opcional para IA (Waifu2x): GPU com Vulkan (Intel/AMD/NVIDIA)
 
 ```powershell
-pip install gallery-dl flask pillow
+# opcional, se preferir usar o Python do sistema:
+pip install -r requirements.txt
 ```
 
 Para a melhoria com IA, baixe o pacote oficial do
