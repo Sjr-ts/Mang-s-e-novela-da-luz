@@ -418,11 +418,11 @@ def _strip_item_from_archive(dest, item, site_folder="mangafire", archive_name=N
     patterns = []
     for key in keys:
         if key:
-            patterns.append("%s_%s_%" % ("%", key))     # ..._<key>_...
-            patterns.append("%s_%%" % key)               # <key>_...
+            patterns.append("%%_%s_%%" % key)     # ..._<key>_...
+            patterns.append("%s_%%" % key)        # <key>_...
     url = (item.get("url") or "").strip()
     if url:
-        patterns.append("%%%s%%" % url)                  # entrada = url
+        patterns.append("%%" + url + "%%")        # entrada = url
     if not patterns:
         return 0
     try:
@@ -829,8 +829,10 @@ class JobManager:
 
                 manga_root = os.path.join(dest, job.site_folder)
                 item_start = time.time() - 2
-                is_custom = bool(adapter is not None and
-                                 getattr(adapter, "custom_download", False))
+                _cd = getattr(adapter, "custom_download", False)
+                if callable(_cd):
+                    _cd = _cd()
+                is_custom = bool(adapter is not None and _cd)
 
                 if is_custom:
                     # download direto (bacakomik e outros sem extractor gallery-dl)
